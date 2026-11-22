@@ -1,0 +1,624 @@
+
+import cv2
+import mediapipe as mp
+import os
+import time
+import ctypes
+
+from ctypes import wintypes
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
+
+# ==============================
+# WINDOWS API
+# ==============================
+
+user32 = ctypes.windll.user32
+
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_RIGHTDOWN = 0x0008
+MOUSEEVENTF_RIGHTUP = 0x0010
+MOUSEEVENTF_WHEEL = 0x0800
+
+def left_button_down():
+    user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+
+def left_button_up():
+    user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+
+def right_button_down():
+    user32.mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0)
+
+def right_button_up():
+    user32.mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
+
+# ==============================
+# OBSŁUGA WIELU MONITORÓW
+# ==============================
+
+monitors = []
+
+MONITOR_CALLBACK = ctypes.WINFUNCTYPE(
+    wintypes.BOOL,
+    ctypes.c_void_p,
+    ctypes.c_void_p,
+    ctypes.POINTER(wintypes.RECT),
+    ctypes.c_ssize_t
+)
+
+def monitor_callback(hMonitor, hdcMonitor, lprcMonitor, dwData):
+    rect = lprcMonitor.contents
+
+    monitors.append((
+        rect.left,
+        rect.top,
+        rect.right,
+        rect.bottom
+    ))
+
+    return True
+
+callback = MONITOR_CALLBACK(monitor_callback)
+
+user32.EnumDisplayMonitors(None, None, callback, 0)
+
+if not monitors:
+    raise RuntimeError("Nie znaleziono monitorów!")
+
+SCREEN_LEFT = min(m[0] for m in monitors)
+SCREEN_TOP = min(m[1] for m in monitors)
+SCREEN_RIGHT = max(m[2] for m in monitors)
+SCREEN_BOTTOM = max(m[3] for m in monitors)
+
+SCREEN_WIDTH = SCREEN_RIGHT - SCREEN_LEFT
+SCREEN_HEIGHT = SCREEN_BOTTOM - SCREEN_TOP
+
+print("Wykryte monitory:", len(monitors))
+print("Obszar pulpitu:", SCREEN_WIDTH, "x", SCREEN_HEIGHT)
+
+# ==============================
+# KONFIGURACJA
+# ==============================
+
+MODEL_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "hand_landmarker.task"
+)
+
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(
+        "Nie znaleziono pliku hand_landmarker.task!"
+    )
+
+CONNECTIONS = [
+    (0, 1), (1, 2), (2, 3), (3, 4),
+    (0, 5), (5, 6), (6, 7), (7, 8),
+    (5, 9), (9, 10), (10, 11), (11, 12),
+    (9, 13), (13, 14), (14, 15), (15, 16),
+    (13, 17), (17, 18), (18, 19), (19, 20),
+    (0, 17)
+]
+
+# ==============================
+# MEDIAPIPE
+# ==============================
+
+base_options = python.BaseOptions(
+    model_asset_path=MODEL_PATH
+)
+
+options = vision.HandLandmarkerOptions(
+    base_options=base_options,
+    running_mode=vision.RunningMode.VIDEO,
+    num_hands=2
+)
+
+landmarker = vision.HandLandmarker.create_from_options(options)
+
+# ==============================
+# KAMERA
+# ==============================
+
+camera = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+
+camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+camera.set(cv2.CAP_PROP_FPS, 30)
+
+if not camera.isOpened():
+    landmarker.close()
+    raise RuntimeError("Nie udało się uruchomić kamery!")
+
+# ==============================
+# USTAWIENIA
+# ==============================
+
+WINDOW_NAME = "Sterowanie myszka"
+
+cv2.namedWindow(WINDOW_NAME)
+
+cv2.createTrackbar(
+    "Reka: P/L/PL",
+    WINDOW_NAME,
+    0,
+    2,
+    lambda x: None
+)
+
+cv2.createTrackbar(
+    "Czulosc",
+    WINDOW_NAME,
+    12,
+    30,
+    lambda x: None
+)
+
+cv2.createTrackbar(
+    "Wyl/1Wl",
+    WINDOW_NAME,
+    0,
+    1,
+    lambda x: None
+)
+
+# ==============================
+# USTAWIENIA GESTÓW
+# ==============================
+
+PINCH_THRESHOLD = 0.35
+RELEASE_THRESHOLD = 0.50
+
+# Węższy zakres dla lewego kliknięcia
+LEFT_PINCH_THRESHOLD = 0.24
+LEFT_RELEASE_THRESHOLD = 0.38
+
+# Przewijanie gestem ✌
+SCROLL_SENSITIVITY = 1200
+SCROLL_DEADZONE = 35
+scroll_previous_y = None
+scroll_accumulator = 0.0
+
+left_held = False
+right_held = False
+
+# ==============================
+# STEROWANIE
+# ==============================
+
+start_time = time.perf_counter()
+last_timestamp = -1
+
+smooth_x = SCREEN_WIDTH / 2
+smooth_y = SCREEN_HEIGHT / 2
+
+SMOOTHING = 0.80
+
+print("Program uruchomiony.")
+print("Q lub ESC - zamknij program.")
+
+try:
+
+    while True:
+
+        success, frame = camera.read()
+
+        if not success:
+            print("Nie udalo sie pobrac obrazu.")
+            break
+
+        # ==============================
+        # ORIENTACJA KAMERY
+        # ==============================
+
+        frame = cv2.flip(frame, 1)
+
+        height, width, _ = frame.shape
+
+        rgb_frame = cv2.cvtColor(
+            frame,
+            cv2.COLOR_BGR2RGB
+        )
+
+        mp_image = mp.Image(
+            image_format=mp.ImageFormat.SRGB,
+            data=rgb_frame
+        )
+
+        # ==============================
+        # CZAS MEDIAPIPE
+        # ==============================
+
+        timestamp_ms = int(
+            (time.perf_counter() - start_time) * 1000
+        )
+
+        timestamp_ms = max(
+            timestamp_ms,
+            last_timestamp + 1
+        )
+
+        last_timestamp = timestamp_ms
+
+        results = landmarker.detect_for_video(
+            mp_image,
+            timestamp_ms
+        )
+
+        # ==============================
+        # ODCZYT USTAWIEŃ
+        # ==============================
+
+        selected_hand = cv2.getTrackbarPos(
+            "Reka: P/L/PL",
+            WINDOW_NAME
+        )
+
+        sensitivity = cv2.getTrackbarPos(
+            "Czulosc",
+            WINDOW_NAME
+        ) / 10.0
+
+        mouse_enabled = cv2.getTrackbarPos(
+            "Wyl/1Wl",
+            WINDOW_NAME
+        )
+
+        wanted_label = (
+            "Right" if selected_hand == 0
+            else "Left" if selected_hand == 1
+            else None
+        )
+
+        selected_hands = []
+        selected_landmarks = None
+
+        # ==============================
+        # WYKRYWANIE DŁONI
+        # ==============================
+
+        if results.hand_landmarks:
+
+            # Najpierw zbieramy wykrycia i ich pewność.
+            # Jeśli MediaPipe zgłosi dwie dłonie jako tę samą rękę,
+            # zostawiamy tylko wykrycie z najwyższą pewnością.
+            best_by_label = {}
+
+            for i, hand in enumerate(results.hand_landmarks):
+
+                original_label = (
+                    results.handedness[i][0].category_name
+                )
+
+                label = (
+                    "Right" if original_label == "Left"
+                    else "Left"
+                )
+
+                confidence = results.handedness[i][0].score
+
+                if (
+                    label not in best_by_label
+                    or confidence > best_by_label[label][0]
+                ):
+                    best_by_label[label] = (confidence, hand)
+
+            # Rysujemy i wykorzystujemy maksymalnie jedną
+            # prawą oraz jedną lewą dłoń.
+            for label, (confidence, hand) in best_by_label.items():
+
+                for conn_start, conn_end in CONNECTIONS:
+
+                    x1 = int(hand[conn_start].x * width)
+                    y1 = int(hand[conn_start].y * height)
+
+                    x2 = int(hand[conn_end].x * width)
+                    y2 = int(hand[conn_end].y * height)
+
+                    cv2.line(
+                        frame,
+                        (x1, y1),
+                        (x2, y2),
+                        (0, 255, 0),
+                        2
+                    )
+
+                for point in hand:
+
+                    x = int(point.x * width)
+                    y = int(point.y * height)
+
+                    cv2.circle(
+                        frame,
+                        (x, y),
+                        5,
+                        (0, 0, 255),
+                        -1
+                    )
+
+                wrist_x = int(hand[0].x * width)
+                wrist_y = int(hand[0].y * height)
+
+                cv2.putText(
+                    frame,
+                    "Prawa" if label == "Right" else "Lewa",
+                    (wrist_x + 10, wrist_y - 20),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1,
+                    (255, 255, 0),
+                    2
+                )
+
+                if selected_hand == 2 or label == wanted_label:
+                    selected_hands.append(hand)
+
+        # Pierwsza wybrana dłoń steruje pozycją kursora.
+        # Przy opcji "Obie" gesty działają na obu dłoniach.
+        if selected_hands:
+            selected_landmarks = selected_hands[0]
+
+
+        # ==============================
+        # RUCH MYSZKI
+        # ==============================
+
+        if mouse_enabled and selected_landmarks is not None:
+
+            hand_x = selected_landmarks[0].x
+            hand_y = selected_landmarks[0].y
+
+            target_x = SCREEN_LEFT + hand_x * SCREEN_WIDTH
+            target_y = SCREEN_TOP + hand_y * SCREEN_HEIGHT
+
+            smooth_x += (
+                target_x - smooth_x
+            ) * SMOOTHING
+
+            smooth_y += (
+                target_y - smooth_y
+            ) * SMOOTHING
+
+            center_x = SCREEN_LEFT + SCREEN_WIDTH / 2
+            center_y = SCREEN_TOP + SCREEN_HEIGHT / 2
+
+            move_x = center_x + (
+                smooth_x - center_x
+            ) * sensitivity
+
+            move_y = center_y + (
+                smooth_y - center_y
+            ) * sensitivity
+
+            move_x = max(
+                SCREEN_LEFT,
+                min(SCREEN_RIGHT - 1, move_x)
+            )
+
+            move_y = max(
+                SCREEN_TOP,
+                min(SCREEN_BOTTOM - 1, move_y)
+            )
+
+            user32.SetCursorPos(
+                int(move_x),
+                int(move_y)
+            )
+
+        # ==============================
+        # GESTY: KLIKANIE I SCROLL
+        # ==============================
+
+        if mouse_enabled and selected_hands:
+
+            left_pinched = False
+            right_pinched = False
+            peace_hands = []
+
+            for gesture_hand in selected_hands:
+
+                thumb = gesture_hand[4]
+                index = gesture_hand[8]
+                middle = gesture_hand[12]
+                ring = gesture_hand[16]
+                pinky = gesture_hand[20]
+
+                wrist = gesture_hand[0]
+                palm = gesture_hand[5]
+
+                palm_size = (
+                    (palm.x - wrist.x) ** 2
+                    + (palm.y - wrist.y) ** 2
+                ) ** 0.5
+
+                if palm_size <= 0:
+                    continue
+
+                # KCIUK + WSKAZUJĄCY = LEWY PRZYCISK
+                left_distance = (
+                    (thumb.x - index.x) ** 2
+                    + (thumb.y - index.y) ** 2
+                ) ** 0.5
+                left_normalized = left_distance / palm_size
+
+                if left_normalized < LEFT_PINCH_THRESHOLD:
+                    left_pinched = True
+
+                # KCIUK + MAŁY PALEC = PRAWY PRZYCISK
+                right_distance = (
+                    (thumb.x - pinky.x) ** 2
+                    + (thumb.y - pinky.y) ** 2
+                ) ** 0.5
+                right_normalized = right_distance / palm_size
+
+                if right_normalized < PINCH_THRESHOLD:
+                    right_pinched = True
+
+                # ✌ = palec wskazujący i środkowy wyprostowane,
+                # serdeczny i mały zgięte.
+                index_up = gesture_hand[8].y < gesture_hand[6].y
+                middle_up = gesture_hand[12].y < gesture_hand[10].y
+                ring_folded = gesture_hand[16].y > gesture_hand[14].y
+                pinky_folded = gesture_hand[20].y > gesture_hand[18].y
+
+                if index_up and middle_up and ring_folded and pinky_folded:
+                    peace_hands.append(gesture_hand)
+
+                # Rysowanie linii do palców
+                thumb_x = int(thumb.x * width)
+                thumb_y = int(thumb.y * height)
+                index_x = int(index.x * width)
+                index_y = int(index.y * height)
+                pinky_x = int(pinky.x * width)
+                pinky_y = int(pinky.y * height)
+
+                cv2.line(
+                    frame, (thumb_x, thumb_y), (index_x, index_y),
+                    (255, 0, 255), 3
+                )
+                cv2.line(
+                    frame, (thumb_x, thumb_y), (pinky_x, pinky_y),
+                    (0, 255, 255), 3
+                )
+
+            # Lewy przycisk: węższy próg aktywacji i zwalniania
+            if not left_held and left_pinched:
+                left_button_down()
+                left_held = True
+            elif left_held:
+                # Trzymaj, dopóki co najmniej jedna wybrana dłoń
+                # nadal wykonuje gest; uwzględnij próg zwalniania.
+                left_still_pinched = False
+                for gesture_hand in selected_hands:
+                    thumb = gesture_hand[4]
+                    index = gesture_hand[8]
+                    wrist = gesture_hand[0]
+                    palm = gesture_hand[5]
+                    palm_size = (
+                        (palm.x - wrist.x) ** 2
+                        + (palm.y - wrist.y) ** 2
+                    ) ** 0.5
+                    if palm_size > 0:
+                        d = (
+                            (thumb.x - index.x) ** 2
+                            + (thumb.y - index.y) ** 2
+                        ) ** 0.5 / palm_size
+                        if d <= LEFT_RELEASE_THRESHOLD:
+                            left_still_pinched = True
+                            break
+                if not left_still_pinched:
+                    left_button_up()
+                    left_held = False
+
+            # Prawy przycisk
+            if not right_held and right_pinched:
+                right_button_down()
+                right_held = True
+            elif right_held:
+                right_still_pinched = False
+                for gesture_hand in selected_hands:
+                    thumb = gesture_hand[4]
+                    pinky = gesture_hand[20]
+                    wrist = gesture_hand[0]
+                    palm = gesture_hand[5]
+                    palm_size = (
+                        (palm.x - wrist.x) ** 2
+                        + (palm.y - wrist.y) ** 2
+                    ) ** 0.5
+                    if palm_size > 0:
+                        d = (
+                            (thumb.x - pinky.x) ** 2
+                            + (thumb.y - pinky.y) ** 2
+                        ) ** 0.5 / palm_size
+                        if d <= RELEASE_THRESHOLD:
+                            right_still_pinched = True
+                            break
+                if not right_still_pinched:
+                    right_button_up()
+                    right_held = False
+
+            # SCROLL: wykonuj ✌ i przesuwaj dłoń góra/dół
+            if peace_hands:
+                scroll_hand = peace_hands[0]
+                current_scroll_y = (
+                    scroll_hand[0].y + scroll_hand[9].y
+                ) / 2
+
+                if scroll_previous_y is not None:
+                    movement = scroll_previous_y - current_scroll_y
+                    scroll_accumulator += movement * SCROLL_SENSITIVITY
+
+                    if abs(scroll_accumulator) >= SCROLL_DEADZONE:
+                        wheel_delta = int(scroll_accumulator)
+                        user32.mouse_event(
+                            MOUSEEVENTF_WHEEL,
+                            0, 0, wheel_delta, 0
+                        )
+                        scroll_accumulator -= wheel_delta
+
+                scroll_previous_y = current_scroll_y
+
+                cv2.putText(
+                    frame, "SCROLL: AKTYWNY",
+                    (20, 110), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, (0, 255, 255), 2
+                )
+            else:
+                scroll_previous_y = None
+                scroll_accumulator = 0.0
+
+            left_status = "LPM: WCISNIETY" if left_held else "LPM: ZWOLNIONY"
+            right_status = "PPM: WCISNIETY" if right_held else "PPM: ZWOLNIONY"
+
+            cv2.putText(
+                frame, left_status, (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                (255, 0, 255) if left_held else (255, 255, 255), 2
+            )
+            cv2.putText(
+                frame, right_status, (20, 75),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                (0, 255, 255) if right_held else (255, 255, 255), 2
+            )
+
+        else:
+            # Zwolnij przyciski, gdy sterowanie jest wyłączone
+            # albo wybrane dłonie znikną z obrazu.
+            if left_held:
+                left_button_up()
+                left_held = False
+
+            if right_held:
+                right_button_up()
+                right_held = False
+
+            scroll_previous_y = None
+            scroll_accumulator = 0.0
+
+        # ==============================
+        # WYŚWIETLANIE
+        # ==============================
+
+        cv2.imshow(WINDOW_NAME, frame)
+
+        key = cv2.waitKey(1) & 0xFF
+
+        if key == ord("q") or key == 27:
+            break
+
+finally:
+
+    # Zabezpieczenie przed pozostawieniem wciśniętych przycisków
+
+    if left_held:
+        left_button_up()
+        left_held = False
+
+    if right_held:
+        right_button_up()
+        right_held = False
+
+    camera.release()
+    landmarker.close()
+    cv2.destroyAllWindows()
+
+    print("Program zakonczony.")

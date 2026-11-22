@@ -1,0 +1,9 @@
+{
+  "hand": 0,
+  "sens": 6,
+  "accel": 1,
+  "smooth": 4,
+  "face": true,
+  "debug": true,
+  "map": true
+}
