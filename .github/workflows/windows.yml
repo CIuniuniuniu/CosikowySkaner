@@ -3,7 +3,8 @@ name: Windows executable
 on:
   push:
     branches:
-      - codex/fix-startup-and-split
+      - main
+      - 'codex/**'
     tags:
       - 'v*'
   workflow_dispatch:
