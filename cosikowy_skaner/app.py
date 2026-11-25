@@ -1,9 +1,11 @@
+import time
+import traceback
+from contextlib import ExitStack
+
 import cv2
 import mediapipe as mp
+import numpy as np
 from mediapipe.tasks import python
-import time
-from contextlib import ExitStack
-import traceback
 from mediapipe.tasks.python import vision
 
 from .camera import CameraThread
@@ -30,6 +32,7 @@ from .config import (
     PREVIEW_WIDTH,
     WINDOW_NAME,
 )
+from .controls import Controls, PANEL_HEIGHT
 from .controller import Controller
 from .cursor import CursorDriver, Desktop
 from .face import FaceScanner
@@ -140,26 +143,13 @@ def run_camera_loop(api, resources):
     cv2.namedWindow(WINDOW_NAME)
     resources.callback(cv2.destroyAllWindows)
 
-    cv2.createTrackbar(
-        "Reka: P/L/PL", WINDOW_NAME,
-        saved_int("hand", DEFAULT_HAND_MODE, 0, 2), 2, lambda x: None
-    )
-    cv2.createTrackbar(
-        "Czulosc", WINDOW_NAME,
-        saved_int("sens", DEFAULT_SENS, 3, 30), 30, lambda x: None
-    )
-    cv2.createTrackbar(
-        "Przyspiesz", WINDOW_NAME,
-        saved_int("accel", DEFAULT_ACCEL, 0, 10), 10, lambda x: None
-    )
-    cv2.createTrackbar(
-        "Wygladz", WINDOW_NAME,
-        saved_int("smooth", DEFAULT_SMOOTH, 0, 10), 10, lambda x: None
-    )
-    cv2.createTrackbar(
-        "Wyl/1Wl", WINDOW_NAME,
-        1 if ctrl.enabled else 0, 1, lambda x: None
-    )
+    ctrl.hand_mode = saved_int("hand", DEFAULT_HAND_MODE, 0, 2)
+    ctrl.sens = saved_int("sens", DEFAULT_SENS, 3, 30) / 10.0
+    ctrl.accel = saved_int("accel", DEFAULT_ACCEL, 0, 10)
+    ctrl.smooth = saved_int("smooth", DEFAULT_SMOOTH, 0, 10)
+
+    controls = Controls(ctrl)
+    cv2.setMouseCallback(WINDOW_NAME, controls.on_mouse)
 
     print("Program uruchomiony.")
     print("Q lub ESC - zamknij, T lub Ctrl+Alt+G - ON/OFF, D - debug, F - twarz, M - mapka monitorow.")
@@ -170,8 +160,8 @@ def run_camera_loop(api, resources):
     last_loop = start_t
     last_monitor_check = start_t
     hotkey_prev = False
-    last_tb = 1 if ctrl.enabled else 0
-    closed_count = 0
+    window_shown = False
+    camera_stalled = False
     errors = 0
 
     try:
@@ -182,19 +172,49 @@ def run_camera_loop(api, resources):
                 print("Nie udalo sie pobrac obrazu z kamery.")
                 break
 
-            if frame is None or seq == last_seq:
-                key = cv2.waitKey(1) & 0xFF
-
-                if key in (ord("q"), ord("Q"), 27):
+            now = time.perf_counter()
+            key = cv2.waitKey(1) & 0xFF
+            if window_shown:
+                try:
+                    if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
+                        break
+                except cv2.error:
                     break
 
+            if 65 <= key <= 90:
+                key += 32
+
+            if key in (ord("q"), 27):
+                break
+            if key == ord("t"):
+                ctrl.set_enabled(not ctrl.enabled, "klawisz T")
+            elif key == ord("d"):
+                show_debug = not show_debug
+            elif key == ord("f"):
+                face.enabled = not face.enabled
+            elif key == ord("m"):
+                show_map = not show_map
+
+            if GLOBAL_HOTKEY:
+                hotkey = (
+                    api.key_down(VK_CONTROL)
+                    and api.key_down(VK_MENU)
+                    and api.key_down(VK_G)
+                )
+                if hotkey and not hotkey_prev:
+                    ctrl.set_enabled(not ctrl.enabled, "Ctrl+Alt+G")
+                hotkey_prev = hotkey
+
+            if frame is None or seq == last_seq:
+                if not camera_stalled and now - (tcap or start_t) > 0.4:
+                    ctrl.suspend_input(now)
+                    camera_stalled = True
                 continue
+            camera_stalled = False
 
             last_seq = seq
 
             try:
-                now = time.perf_counter()
-
                 loop_dt = now - last_loop
                 last_loop = now
 
@@ -217,18 +237,6 @@ def run_camera_loop(api, resources):
 
                 results = landmarker.detect_for_video(mp_image, timestamp_ms)
 
-                # ---------- ustawienia z suwaków ----------
-                ctrl.hand_mode = cv2.getTrackbarPos("Reka: P/L/PL", WINDOW_NAME)
-                ctrl.sens = max(3, cv2.getTrackbarPos("Czulosc", WINDOW_NAME)) / 10.0
-                ctrl.accel = cv2.getTrackbarPos("Przyspiesz", WINDOW_NAME)
-                ctrl.smooth = cv2.getTrackbarPos("Wygladz", WINDOW_NAME)
-
-                tb_enabled = cv2.getTrackbarPos("Wyl/1Wl", WINDOW_NAME)
-
-                if tb_enabled != last_tb:
-                    last_tb = tb_enabled
-                    ctrl.set_enabled(bool(tb_enabled), "suwak")
-
                 # ---------- dłonie i sterowanie ----------
                 dets = build_detections(results)
 
@@ -241,19 +249,6 @@ def run_camera_loop(api, resources):
                 ctrl.listen.update_face(face, now, width, height)
 
                 ctrl.step(tracks, now, tcap, width, height)
-
-                # ---------- globalny skrót Ctrl+Alt+G ----------
-                if GLOBAL_HOTKEY:
-                    hotkey = (
-                        api.key_down(VK_CONTROL)
-                        and api.key_down(VK_MENU)
-                        and api.key_down(VK_G)
-                    )
-
-                    if hotkey and not hotkey_prev:
-                        ctrl.set_enabled(not ctrl.enabled, "Ctrl+Alt+G")
-
-                    hotkey_prev = hotkey
 
                 # ---------- układ monitorów (wykrywa podłączenie/odłączenie) ----------
                 if now - last_monitor_check > 2.0:
@@ -276,10 +271,11 @@ def run_camera_loop(api, resources):
                     )
 
                 # ---------- podgląd ----------
-                if PREVIEW_WIDTH and PREVIEW_WIDTH != width:
-                    preview_h = int(height * PREVIEW_WIDTH / width)
+                preview_width = max(700, PREVIEW_WIDTH or width)
+                if preview_width != width:
+                    preview_h = max(1, round(height * preview_width / width))
                     preview = cv2.resize(
-                        frame, (PREVIEW_WIDTH, preview_h),
+                        frame, (preview_width, preview_h),
                         interpolation=cv2.INTER_AREA
                     )
                 else:
@@ -308,44 +304,17 @@ def run_camera_loop(api, resources):
                     sum(1 for t in tracks if t.present), face, now
                 )
 
-                cv2.imshow(WINDOW_NAME, preview)
-
-                key = cv2.waitKey(1) & 0xFF
-
-                if 65 <= key <= 90:
-                    key += 32
-
-                if key == ord("q") or key == 27:
-                    break
-                elif key == ord("t"):
-                    ctrl.set_enabled(not ctrl.enabled, "klawisz T")
-                elif key == ord("d"):
-                    show_debug = not show_debug
-                elif key == ord("f"):
-                    face.enabled = not face.enabled
-                elif key == ord("m"):
-                    show_map = not show_map
-
-                # suwak ON/OFF zawsze zgodny ze stanem (gest, klawisz, skrót)
-                if ctrl.enabled_changed:
-                    ctrl.enabled_changed = False
-                    last_tb = 1 if ctrl.enabled else 0
-                    cv2.setTrackbarPos("Wyl/1Wl", WINDOW_NAME, last_tb)
-
-                # zamknięcie okna krzyżykiem
-                try:
-                    visible = cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE)
-                except cv2.error:
-                    visible = 0
-
-                closed_count = closed_count + 1 if visible < 1 else 0
-
-                if closed_count >= 5:
-                    break
+                canvas = np.empty((preview.shape[0] + PANEL_HEIGHT, preview_width, 3), dtype=preview.dtype)
+                canvas[:preview.shape[0]] = preview
+                controls.draw(canvas, preview.shape[0])
+                cv2.imshow(WINDOW_NAME, canvas)
+                window_shown = True
 
                 errors = 0
 
             except Exception:
+                if not errors:
+                    ctrl.suspend_input(now)
                 errors += 1
 
                 if errors <= 5:

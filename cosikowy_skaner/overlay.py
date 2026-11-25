@@ -12,19 +12,19 @@ from .face import FACE_LINES, FACE_LOOPS
 from .filters import clamp
 
 
-# paleta (BGR)
-COL_TEXT = (240, 240, 240)
-COL_SUB = (178, 178, 178)
-COL_DIM = (112, 110, 108)
-COL_PANEL = (30, 26, 24)
-COL_TRACK = (68, 64, 62)
-COL_KEY = (86, 82, 80)
-COL_DARK = (28, 28, 28)
-COL_GREEN = (120, 222, 110)
-COL_RED = (96, 96, 240)
-COL_AMBER = (58, 190, 250)
-COL_BLUE = (250, 178, 84)
-COL_PURPLE = (228, 112, 204)
+# Paleta BGR używana również przez panel ustawień.
+COL_TEXT = (248, 241, 232)
+COL_SUB = (207, 188, 164)
+COL_DIM = (159, 143, 126)
+COL_PANEL = (40, 31, 23)
+COL_TRACK = (76, 60, 48)
+COL_KEY = (95, 75, 58)
+COL_DARK = (31, 24, 18)
+COL_GREEN = (169, 224, 112)
+COL_RED = (137, 133, 247)
+COL_AMBER = (96, 198, 250)
+COL_BLUE = (229, 189, 114)
+COL_PURPLE = (228, 132, 204)
 
 FONT_TITLE = cv2.FONT_HERSHEY_DUPLEX
 
@@ -115,10 +115,10 @@ def draw_chip(img, x, y, text, fg, bg, scale=0.45, pad=9, h=22, border=None):
     x = int(clamp(x, 2, max(2, iw - w - 2)))
     y = int(clamp(y, 2, max(2, ih - h - 2)))
 
-    fill_rounded(img, (x, y), (x + w, y + h), bg, h // 2)
+    fill_rounded(img, (x, y), (x + w, y + h), bg, 7)
 
     if border is not None:
-        outline_rounded(img, (x, y), (x + w, y + h), border, h // 2)
+        outline_rounded(img, (x, y), (x + w, y + h), border, 7)
 
     ptext(img, text, x + pad, y + (h + th) // 2, scale, fg)
     return w
@@ -272,7 +272,7 @@ def draw_minimap(img, desktop, cursor):
     x2 = x1 + bw
     y2 = y1 + bh
 
-    blend_rounded(img, (x1, y1), (x2, y2), COL_PANEL, 0.68, 12)
+    blend_rounded(img, (x1, y1), (x2, y2), COL_PANEL, 0.90, 12)
     outline_rounded(img, (x1, y1), (x2, y2), COL_TRACK, 12)
     ptext(img, "PULPIT", x1 + 14, y1 + 21, 0.42, COL_SUB)
 
@@ -335,22 +335,21 @@ def draw_help_bar(img):
 
 
 def draw_hud(img, ctrl, cam_fps, cam_mode, cv_fps, n_hands, face, now):
-    h, w = img.shape[:2]
     hud = ctrl.hud
 
-    accent = COL_GREEN if ctrl.enabled else COL_RED
+    accent = COL_GREEN if ctrl.enabled else COL_SUB
 
     # --- panel ---
     px, py, pw, ph = 12, 12, 376, 340
-    blend_rounded(img, (px, py), (px + pw, py + ph), COL_PANEL, 0.70, 14)
-    outline_rounded(img, (px, py), (px + pw, py + ph), accent, 14)
+    blend_rounded(img, (px, py), (px + pw, py + ph), COL_PANEL, 0.91, 14)
+    outline_rounded(img, (px, py), (px + pw, py + ph), COL_TRACK, 14)
 
     ix = px + 16
     iw = pw - 32
 
     # --- nagłówek: kropka, tytuł, ON/OFF ---
-    cv2.circle(img, (ix + 6, py + 32), 7, accent, -1, cv2.LINE_AA)
-    ptext(img, "STEROWANIE", ix + 24, py + 40, 0.72, COL_TEXT, 1, FONT_TITLE)
+    cv2.circle(img, (ix + 5, py + 33), 4, accent, -1, cv2.LINE_AA)
+    ptext(img, "CosikowySkaner", ix + 19, py + 40, 0.72, COL_TEXT, 1, FONT_TITLE)
 
     badge = "ON" if ctrl.enabled else "OFF"
     bw = chip_width(badge, 0.5, 14)
@@ -358,7 +357,7 @@ def draw_hud(img, ctrl, cam_fps, cam_mode, cv_fps, n_hands, face, now):
 
     # --- aktualny tryb + stan przycisków myszy ---
     if not ctrl.enabled:
-        mode, mode_color = "WYLACZONE (rock x2)", COL_RED
+        mode, mode_color = "PAUZA STEROWANIA", COL_SUB
     elif hud.vol_mode:
         mode, mode_color = "GLOSNOSC", COL_AMBER
     elif hud.listen_pose:
@@ -376,7 +375,7 @@ def draw_hud(img, ctrl, cam_fps, cam_mode, cv_fps, n_hands, face, now):
     else:
         mode, mode_color = "GOTOWE", COL_GREEN
 
-    draw_chip(img, ix, py + 56, mode, mode_color, COL_TRACK, 0.45, 10, 22, border=mode_color)
+    draw_chip(img, ix, py + 56, mode, mode_color, COL_TRACK, 0.45, 10, 22, border=None)
 
     xr = ix + iw
 

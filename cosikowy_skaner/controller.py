@@ -169,7 +169,6 @@ class Controller:
 
         # ustawienia (zmieniane suwakami)
         self.enabled = START_ENABLED
-        self.enabled_changed = False
         self.hand_mode = DEFAULT_HAND_MODE
         self.sens = DEFAULT_SENS / 10.0
         self.accel = DEFAULT_ACCEL
@@ -241,7 +240,6 @@ class Controller:
             return
 
         self.enabled = value
-        self.enabled_changed = True
 
         if not value:
             self.release_buttons()
@@ -258,6 +256,18 @@ class Controller:
             self.api.beep(1000 if value else 500, 120)
 
     # ---------- pomocnicze ----------
+
+    def set_hand_mode(self, mode):
+        if mode != self.hand_mode:
+            self.hand_mode = mode
+            self.control_id = None
+            self.suspend_input(time.perf_counter())
+
+    def suspend_input(self, now):
+        self.release_buttons()
+        self.reset_scroll()
+        self.scroll_hold_until = 0.0
+        self.invalidate_pointer(now)
 
     def invalidate_pointer(self, now):
         # "Myszka uniesiona": po powrocie dłoń dostaje nowy punkt odniesienia,
