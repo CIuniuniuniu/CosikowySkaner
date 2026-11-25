@@ -19,7 +19,7 @@ def main():
 
     if args.check:
         check_models()
-        print("Zależności i oba modele wczytane poprawnie.")
+        print("Zaleznosci i oba modele wczytane poprawnie.")
     else:
         run()
 
