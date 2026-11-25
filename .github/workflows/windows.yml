@@ -1,0 +1,36 @@
+name: Windows executable
+
+on:
+  push:
+    branches:
+      - codex/fix-startup-and-split
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pyinstaller==6.19.0
+      - name: Build executable
+        run: python -m PyInstaller --noconfirm --onedir --name CosikowySkaner --collect-all mediapipe handtest.py
+      - name: Copy models and default settings
+        run: |
+          Copy-Item hand_landmarker.task,face_landmarker.task,ustawienia_myszki.json dist/CosikowySkaner/
+      - name: Test packaged dependencies and models
+        run: dist/CosikowySkaner/CosikowySkaner.exe --check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CosikowySkaner-Windows-x64
+          path: dist/CosikowySkaner/
+          if-no-files-found: error
