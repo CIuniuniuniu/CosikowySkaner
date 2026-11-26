@@ -3,6 +3,8 @@
 import cv2
 import numpy as np
 
+from .windows_ui import ImageWindow
+
 from .overlay import COL_BLUE, COL_DARK, COL_PANEL, COL_SUB, COL_TRACK, fill_rounded, ptext
 
 WINDOW = "CosikowySkaner - Gesty"
@@ -113,13 +115,14 @@ def render_tutorial():
     return image
 
 
-def open_tutorial():
-    try:
-        visible = cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) >= 1
-    except cv2.error:
-        visible = False
-    image = render_tutorial()
-    if not visible:
-        cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        cv2.resizeWindow(WINDOW, image.shape[1], image.shape[0])
-    cv2.imshow(WINDOW, image)
+class TutorialWindow:
+    def __init__(self, parent):
+        self.parent = parent
+        self.window = None
+
+    def open(self):
+        if self.window is not None and not self.window.closed:
+            self.window.focus()
+            return
+        self.window = ImageWindow(WINDOW, self.parent)
+        self.window.show(render_tutorial())

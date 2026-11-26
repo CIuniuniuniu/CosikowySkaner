@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 
 from .filters import clamp
-from .tutorial import open_tutorial
+from .windows_ui import ImageWindow
 from .overlay import (
     COL_BLUE, COL_DARK, COL_GREEN, COL_PANEL, COL_SUB, COL_TEXT, COL_TRACK,
     fill_rounded, outline_rounded, ptext, text_size,
@@ -37,7 +37,7 @@ class Controls:
         self.sliders = []
         self.dragged = None
 
-    def draw(self, image, top, open_settings):
+    def draw(self, image, top, open_settings, open_tutorial):
         width = image.shape[1]
         image[top:] = COL_DARK
         cv2.line(image, (0, top), (width - 1, top), COL_TRACK)
@@ -142,31 +142,21 @@ class Controls:
 
 
 class SettingsWindow:
-    def __init__(self, controller):
+    def __init__(self, controller, parent):
         self.controls = Controls(controller)
         self.image = np.empty((465, 704, 3), dtype=np.uint8)
-        self.opened = False
+        self.parent = parent
+        self.window = None
 
     def open(self):
-        if self.opened:
+        if self.window is not None and not self.window.closed:
+            self.window.focus()
             return
-        cv2.namedWindow(SETTINGS_WINDOW, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        cv2.resizeWindow(SETTINGS_WINDOW, self.image.shape[1], self.image.shape[0])
-        cv2.setMouseCallback(SETTINGS_WINDOW, self.controls.on_mouse)
-        self.opened = True
-        self.controls.draw_settings(self.image)
-        cv2.imshow(SETTINGS_WINDOW, self.image)
+        self.controls.dragged = None
+        self.window = ImageWindow(SETTINGS_WINDOW, self.parent, self.controls.on_mouse)
+        self.refresh()
 
     def refresh(self):
-        if not self.opened:
-            return
-        try:
-            visible = cv2.getWindowProperty(SETTINGS_WINDOW, cv2.WND_PROP_VISIBLE)
-        except cv2.error:
-            visible = 0
-        if visible < 1:
-            self.controls.dragged = None
-            self.opened = False
-            return
-        self.controls.draw_settings(self.image)
-        cv2.imshow(SETTINGS_WINDOW, self.image)
+        if self.window is not None and not self.window.closed:
+            self.controls.draw_settings(self.image)
+            self.window.show(self.image)

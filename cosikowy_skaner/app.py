@@ -41,6 +41,8 @@ from .hands import HandTracker, build_detections
 from .overlay import draw_face, draw_hands, draw_help_bar, draw_hud, draw_listen, draw_minimap
 from .shortcuts import resolve_app
 from .storage import ensure_model, load_settings, save_settings
+from .tutorial import TutorialWindow
+from .windows_ui import ImageWindow
 from .windows import VK_CONTROL, VK_G, VK_MENU, WinAPI, set_dpi_awareness
 
 
@@ -141,9 +143,6 @@ def run_camera_loop(api, resources):
     show_hud = bool(saved.get("hud", True))
     face.enabled = bool(saved.get("face", FACE_AT_START))
 
-    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-    resources.callback(cv2.destroyAllWindows)
-
     ctrl.hand_mode = saved_int("hand", DEFAULT_HAND_MODE, 0, 2)
     ctrl.sens = saved_int("sens", DEFAULT_SENS, 3, 30) / 10.0
     ctrl.accel = saved_int("accel", DEFAULT_ACCEL, 0, 10)
@@ -156,9 +155,11 @@ def run_camera_loop(api, resources):
             if isinstance(value, bool):
                 ctrl.set_gesture(name, value)
 
-    settings_window = SettingsWindow(ctrl)
     controls = Controls(ctrl)
-    cv2.setMouseCallback(WINDOW_NAME, controls.on_mouse)
+    preview_window = ImageWindow(WINDOW_NAME, on_mouse=controls.on_mouse)
+    resources.callback(preview_window.close)
+    settings_window = SettingsWindow(ctrl, preview_window)
+    tutorial_window = TutorialWindow(preview_window)
 
     print("Program uruchomiony.")
     print("Q lub ESC - zamknij, T lub Ctrl+Alt+G - ON/OFF, D - debug, F - twarz, M - mapka monitorow, H - panel HUD.")
@@ -169,29 +170,21 @@ def run_camera_loop(api, resources):
     last_loop = start_t
     last_monitor_check = start_t
     hotkey_prev = False
-    window_shown = False
     camera_stalled = False
     errors = 0
 
     try:
-        while True:
-            frame, seq, tcap = cam.wait_frame(last_seq, 0.2)
+        while not preview_window.closed:
+            frame, seq, tcap = cam.wait_frame(last_seq, 0.04)
 
             if cam.failed:
                 raise RuntimeError("Nie udalo sie pobrac obrazu z kamery.")
 
             now = time.perf_counter()
-            key = cv2.waitKey(1) & 0xFF
+            key = preview_window.poll()
+            if preview_window.closed:
+                break
             settings_window.refresh()
-            if window_shown:
-                try:
-                    if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
-                        break
-                except cv2.error:
-                    break
-
-            if 65 <= key <= 90:
-                key += 32
 
             if key in (ord("q"), 27):
                 break
@@ -319,11 +312,8 @@ def run_camera_loop(api, resources):
 
                 canvas = np.empty((preview.shape[0] + PANEL_HEIGHT, preview_width, 3), dtype=preview.dtype)
                 canvas[:preview.shape[0]] = preview
-                controls.draw(canvas, preview.shape[0], settings_window.open)
-                if not window_shown:
-                    cv2.resizeWindow(WINDOW_NAME, canvas.shape[1], canvas.shape[0])
-                cv2.imshow(WINDOW_NAME, canvas)
-                window_shown = True
+                controls.draw(canvas, preview.shape[0], settings_window.open, tutorial_window.open)
+                preview_window.show(canvas)
 
                 errors = 0
 
