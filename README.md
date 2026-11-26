@@ -16,6 +16,8 @@ Zainstaluj Python 3.12 x64 z launcherem `py`, a następnie uruchom `start.bat`. 
 
 ## Ustawienia gestów
 
+Przycisk **?** otwiera ilustrowany przewodnik po gestach.
+
 Przycisk **Ustawienia** otwiera osobne okno z wyborem ręki i suwakami czułości, przyspieszenia i wygładzania. Każdy gest można przełączyć osobno.
 
 Aby sterować tylko muzyką, zostaw główne sterowanie włączone, wyłącz **Sterowanie myszą**, **Gest ON / OFF** i **Skrót do Spotify**, a następnie wybierz gesty muzyczne. Wyłączenie myszy blokuje ruch kursora, oba kliknięcia i przewijanie. Po ponownym włączeniu myszy wracają poprzednie ustawienia kliknięć i przewijania. Program zapisuje ustawienia przy zamknięciu.

@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 from .filters import clamp
+from .tutorial import open_tutorial
 from .overlay import (
     COL_BLUE, COL_DARK, COL_GREEN, COL_PANEL, COL_SUB, COL_TEXT, COL_TRACK,
     fill_rounded, outline_rounded, ptext, text_size,
@@ -44,8 +45,10 @@ class Controls:
         enabled = self.controller.enabled
         self._button(image, (14, top + 12, 112, top + 46),
                      "Wlaczone" if enabled else "Wylaczone", enabled, COL_GREEN, self._toggle)
-        self._button(image, (width - 142, top + 12, width - 14, top + 46),
+        self._button(image, (width - 187, top + 12, width - 59, top + 46),
                      "Ustawienia", False, COL_BLUE, open_settings)
+        self._button(image, (width - 50, top + 12, width - 14, top + 46),
+                     "?", False, COL_BLUE, open_tutorial)
         ptext(image, "Mysz wlaczona" if self.controller.gestures["mouse"] else "Mysz wylaczona",
               128, top + 34, 0.45, COL_SUB)
 
