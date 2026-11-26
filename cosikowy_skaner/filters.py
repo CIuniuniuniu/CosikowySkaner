@@ -178,6 +178,9 @@ class HoldCharge:
     def __init__(self, hold_seconds, drain_rate=HOLD_DRAIN_RATE):
         self.hold = hold_seconds
         self.drain = drain_rate
+        self.reset()
+
+    def reset(self):
         self.charge = 0.0
         self.latched = False
         self.t_prev = None

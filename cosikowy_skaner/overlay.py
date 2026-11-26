@@ -316,6 +316,7 @@ def draw_help_bar(img):
         ("D", "debug"),
         ("F", "twarz"),
         ("M", "mapa"),
+        ("H", "panel HUD"),
         ("Ctrl+Alt+G", "on/off z dowolnego miejsca"),
     )
 
@@ -368,6 +369,8 @@ def draw_hud(img, ctrl, cam_fps, cam_mode, cv_fps, n_hands, face, now):
         mode, mode_color = "PIOSENKA", COL_AMBER
     elif hud.lock:
         mode, mode_color = "GEST 2 DLONI", COL_AMBER
+    elif not ctrl.gestures["mouse"]:
+        mode, mode_color = "MYSZ WYLACZONA", COL_BLUE
     elif hud.paused:
         mode, mode_color = "PAUZA KURSORA", COL_AMBER
     elif hud.scroll:
@@ -418,7 +421,7 @@ def draw_hud(img, ctrl, cam_fps, cam_mode, cv_fps, n_hands, face, now):
 
     if not VOLUME_ENABLED:
         rows.append(("GLOSNOSC", "lewa trojka", "wylaczona", hud.vol_p, False, False, None))
-    elif ctrl.hand_mode != 0:
+    elif ctrl.hand_mode != 0 and ctrl.gestures["mouse"]:
         rows.append(("GLOSNOSC", "lewa trojka", "tylko Reka = P", hud.vol_p, False, False, None))
     else:
         rows.append((
@@ -449,6 +452,15 @@ def draw_hud(img, ctrl, cam_fps, cam_mode, cv_fps, n_hands, face, now):
         skip_value, hud.skip_p, hud.skip_dir != 0, True, None
     ))
 
+    available_gestures = (
+        ctrl.gestures["toggle"], ctrl.gestures["listen"], ctrl.gestures["volume"],
+        ctrl.gestures["play"], ctrl.gestures["previous"] or ctrl.gestures["next"],
+    )
+    rows = [
+        row if enabled else (row[0], row[1], "wylaczony", 0, False, False, None)
+        for row, enabled in zip(rows, available_gestures)
+    ]
+
     y = py + 138
 
     for label, hint, value, progress, active, available, value_color in rows:
@@ -472,7 +484,6 @@ def draw_hud(img, ctrl, cam_fps, cam_mode, cv_fps, n_hands, face, now):
     cv2.circle(img, (ix + 5, py + ph - 18), 5, face_color, -1, cv2.LINE_AA)
     ptext(img, face_text, ix + 18, py + ph - 13, 0.45, COL_SUB)
 
-    draw_help_bar(img)
 
 
 def draw_face(img, pts_norm):
