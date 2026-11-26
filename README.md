@@ -6,6 +6,8 @@ Sterowanie myszą gestami dłoni. Aplikacja wymaga Windowsa i kamery.
 
 W zakładce **Actions** otwórz udany przebieg **Windows executable** i pobierz artefakt **CosikowySkaner-Windows-x64**. Rozpakuj całą paczkę i kliknij dwukrotnie **CosikowySkaner.exe**. Pliki modeli oraz folder `_internal` powinny zostać obok pliku EXE.
 
+Diagnostyka wersji EXE jest zapisywana w pliku `%LOCALAPPDATA%\CosikowySkaner\CosikowySkaner.log`.
+
 ## Uruchomienie z kodu
 
 Zainstaluj Python 3.12 x64 z launcherem `py`, a następnie uruchom `start.bat`. Przy pierwszym starcie skrypt tworzy środowisko i instaluje zależności.

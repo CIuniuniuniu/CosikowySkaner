@@ -178,8 +178,7 @@ def run_camera_loop(api, resources):
             frame, seq, tcap = cam.wait_frame(last_seq, 0.2)
 
             if cam.failed:
-                print("Nie udalo sie pobrac obrazu z kamery.")
-                break
+                raise RuntimeError("Nie udalo sie pobrac obrazu z kamery.")
 
             now = time.perf_counter()
             key = cv2.waitKey(1) & 0xFF
@@ -337,8 +336,7 @@ def run_camera_loop(api, resources):
                     traceback.print_exc()
 
                 if errors > 100:
-                    print("Zbyt wiele bledow - koniec programu.")
-                    break
+                    raise RuntimeError("Zbyt wiele bledow przetwarzania obrazu.")
 
     except KeyboardInterrupt:
         pass
