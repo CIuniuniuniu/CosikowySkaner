@@ -114,4 +114,12 @@ def render_tutorial():
 
 
 def open_tutorial():
-    cv2.imshow(WINDOW, render_tutorial())
+    try:
+        visible = cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) >= 1
+    except cv2.error:
+        visible = False
+    image = render_tutorial()
+    if not visible:
+        cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        cv2.resizeWindow(WINDOW, image.shape[1], image.shape[0])
+    cv2.imshow(WINDOW, image)

@@ -150,7 +150,8 @@ class SettingsWindow:
     def open(self):
         if self.opened:
             return
-        cv2.namedWindow(SETTINGS_WINDOW)
+        cv2.namedWindow(SETTINGS_WINDOW, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        cv2.resizeWindow(SETTINGS_WINDOW, self.image.shape[1], self.image.shape[0])
         cv2.setMouseCallback(SETTINGS_WINDOW, self.controls.on_mouse)
         self.opened = True
         self.controls.draw_settings(self.image)
