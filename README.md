@@ -11,6 +11,7 @@ W zakładce **Actions** otwórz udany przebieg **Windows executable** i pobierz 
 Zainstaluj Python 3.12 x64 z launcherem `py`, a następnie uruchom `start.bat`. Przy pierwszym starcie skrypt tworzy środowisko i instaluje zależności.
 
 - **T** lub **Ctrl+Alt+G** — włącz lub wyłącz sterowanie.
+- **H** — ukryj lub pokaż panel w lewym górnym rogu.
 - **Q** lub **Escape** — zamknij program.
 - Indeks kamery i skróty do aplikacji można ustawić w `cosikowy_skaner/config.py`.
 

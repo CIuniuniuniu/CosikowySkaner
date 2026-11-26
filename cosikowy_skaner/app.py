@@ -38,7 +38,7 @@ from .cursor import CursorDriver, Desktop
 from .face import FaceScanner
 from .filters import clamp
 from .hands import HandTracker, build_detections
-from .overlay import draw_face, draw_hands, draw_hud, draw_listen, draw_minimap
+from .overlay import draw_face, draw_hands, draw_help_bar, draw_hud, draw_listen, draw_minimap
 from .shortcuts import resolve_app
 from .storage import ensure_model, load_settings, save_settings
 from .windows import VK_CONTROL, VK_G, VK_MENU, WinAPI, set_dpi_awareness
@@ -138,9 +138,10 @@ def run_camera_loop(api, resources):
 
     show_debug = bool(saved.get("debug", True))
     show_map = bool(saved.get("map", True))
+    show_hud = bool(saved.get("hud", True))
     face.enabled = bool(saved.get("face", FACE_AT_START))
 
-    cv2.namedWindow(WINDOW_NAME)
+    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
     resources.callback(cv2.destroyAllWindows)
 
     ctrl.hand_mode = saved_int("hand", DEFAULT_HAND_MODE, 0, 2)
@@ -160,7 +161,7 @@ def run_camera_loop(api, resources):
     cv2.setMouseCallback(WINDOW_NAME, controls.on_mouse)
 
     print("Program uruchomiony.")
-    print("Q lub ESC - zamknij, T lub Ctrl+Alt+G - ON/OFF, D - debug, F - twarz, M - mapka monitorow.")
+    print("Q lub ESC - zamknij, T lub Ctrl+Alt+G - ON/OFF, D - debug, F - twarz, M - mapka monitorow, H - panel HUD.")
 
     last_seq = 0
     last_ts = -1
@@ -203,6 +204,8 @@ def run_camera_loop(api, resources):
                 face.enabled = not face.enabled
             elif key == ord("m"):
                 show_map = not show_map
+            elif key == ord("h"):
+                show_hud = not show_hud
 
             if GLOBAL_HOTKEY:
                 hotkey = (
@@ -308,14 +311,18 @@ def run_camera_loop(api, resources):
 
                     draw_minimap(preview, desktop, cursor)
 
-                draw_hud(
-                    preview, ctrl, cam.fps, cam.mode_text, cv_fps,
-                    sum(1 for t in tracks if t.present), face, now
-                )
+                if show_hud:
+                    draw_hud(
+                        preview, ctrl, cam.fps, cam.mode_text, cv_fps,
+                        sum(1 for t in tracks if t.present), face, now
+                    )
+                draw_help_bar(preview)
 
                 canvas = np.empty((preview.shape[0] + PANEL_HEIGHT, preview_width, 3), dtype=preview.dtype)
                 canvas[:preview.shape[0]] = preview
                 controls.draw(canvas, preview.shape[0], settings_window.open)
+                if not window_shown:
+                    cv2.resizeWindow(WINDOW_NAME, canvas.shape[1], canvas.shape[0])
                 cv2.imshow(WINDOW_NAME, canvas)
                 window_shown = True
 
@@ -351,5 +358,6 @@ def run_camera_loop(api, resources):
             "face": bool(face.enabled),
             "debug": bool(show_debug),
             "map": bool(show_map),
+            "hud": show_hud,
             "gestures": ctrl.gestures,
         })

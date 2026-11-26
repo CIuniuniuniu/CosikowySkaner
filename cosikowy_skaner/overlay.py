@@ -316,6 +316,7 @@ def draw_help_bar(img):
         ("D", "debug"),
         ("F", "twarz"),
         ("M", "mapa"),
+        ("H", "panel HUD"),
         ("Ctrl+Alt+G", "on/off z dowolnego miejsca"),
     )
 
@@ -483,7 +484,6 @@ def draw_hud(img, ctrl, cam_fps, cam_mode, cv_fps, n_hands, face, now):
     cv2.circle(img, (ix + 5, py + ph - 18), 5, face_color, -1, cv2.LINE_AA)
     ptext(img, face_text, ix + 18, py + ph - 13, 0.45, COL_SUB)
 
-    draw_help_bar(img)
 
 
 def draw_face(img, pts_norm):
