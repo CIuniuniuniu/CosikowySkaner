@@ -32,7 +32,7 @@ from .config import (
     PREVIEW_WIDTH,
     WINDOW_NAME,
 )
-from .controls import Controls, PANEL_HEIGHT
+from .controls import Controls, PANEL_HEIGHT, SettingsWindow
 from .controller import Controller
 from .cursor import CursorDriver, Desktop
 from .face import FaceScanner
@@ -148,6 +148,14 @@ def run_camera_loop(api, resources):
     ctrl.accel = saved_int("accel", DEFAULT_ACCEL, 0, 10)
     ctrl.smooth = saved_int("smooth", DEFAULT_SMOOTH, 0, 10)
 
+    saved_gestures = saved.get("gestures")
+    if isinstance(saved_gestures, dict):
+        for name in ctrl.gestures:
+            value = saved_gestures.get(name)
+            if isinstance(value, bool):
+                ctrl.set_gesture(name, value)
+
+    settings_window = SettingsWindow(ctrl)
     controls = Controls(ctrl)
     cv2.setMouseCallback(WINDOW_NAME, controls.on_mouse)
 
@@ -174,6 +182,7 @@ def run_camera_loop(api, resources):
 
             now = time.perf_counter()
             key = cv2.waitKey(1) & 0xFF
+            settings_window.refresh()
             if window_shown:
                 try:
                     if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
@@ -306,7 +315,7 @@ def run_camera_loop(api, resources):
 
                 canvas = np.empty((preview.shape[0] + PANEL_HEIGHT, preview_width, 3), dtype=preview.dtype)
                 canvas[:preview.shape[0]] = preview
-                controls.draw(canvas, preview.shape[0])
+                controls.draw(canvas, preview.shape[0], settings_window.open)
                 cv2.imshow(WINDOW_NAME, canvas)
                 window_shown = True
 
@@ -342,4 +351,5 @@ def run_camera_loop(api, resources):
             "face": bool(face.enabled),
             "debug": bool(show_debug),
             "map": bool(show_map),
+            "gestures": ctrl.gestures,
         })

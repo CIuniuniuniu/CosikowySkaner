@@ -14,4 +14,10 @@ Zainstaluj Python 3.12 x64 z launcherem `py`, a następnie uruchom `start.bat`. 
 - **Q** lub **Escape** — zamknij program.
 - Indeks kamery i skróty do aplikacji można ustawić w `cosikowy_skaner/config.py`.
 
+## Ustawienia gestów
+
+Przycisk **Ustawienia** otwiera osobne okno z wyborem ręki i suwakami czułości, przyspieszenia i wygładzania. Każdy gest można przełączyć osobno.
+
+Aby sterować tylko muzyką, zostaw główne sterowanie włączone, wyłącz **Sterowanie myszą**, **Gest ON / OFF** i **Skrót do Spotify**, a następnie wybierz gesty muzyczne. Wyłączenie myszy blokuje ruch kursora, oba kliknięcia i przewijanie. Po ponownym włączeniu myszy wracają poprzednie ustawienia kliknięć i przewijania. Program zapisuje ustawienia przy zamknięciu.
+
 Moduły w `cosikowy_skaner/` obejmują kamerę, śledzenie dłoni i twarzy, obsługę gestów, kursor i API Windows oraz nakładkę podglądu. Plik `handtest.py` uruchamia aplikację.

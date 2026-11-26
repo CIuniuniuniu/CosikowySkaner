@@ -173,6 +173,7 @@ class Controller:
         self.sens = DEFAULT_SENS / 10.0
         self.accel = DEFAULT_ACCEL
         self.smooth = DEFAULT_SMOOTH
+        self.gestures = dict.fromkeys(("mouse", "left", "right", "scroll", "toggle", "listen", "volume", "play", "previous", "next"), True)
 
         # przyciski myszy
         self.left_btn = PinchButton(LEFT_PINCH_THRESHOLD, LEFT_RELEASE_THRESHOLD)
@@ -256,6 +257,22 @@ class Controller:
             self.api.beep(1000 if value else 500, 120)
 
     # ---------- pomocnicze ----------
+
+    def set_gesture(self, name, enabled):
+        self.gestures[name] = enabled
+        if name in ("mouse", "left", "right", "scroll"):
+            self.suspend_input(time.perf_counter())
+        hold = {
+            "toggle": self.toggle_hold, "listen": self.listen_hold,
+            "volume": self.vol_hold, "play": self.play_hold,
+            "previous": self.skip_prev_hold, "next": self.skip_next_hold,
+        }.get(name)
+        if hold is not None:
+            hold.reset()
+        if name == "volume" and not enabled:
+            self.vol_mode = False
+            self.vol_prev = None
+            self.vol_acc = 0.0
 
     def set_hand_mode(self, mode):
         if mode != self.hand_mode:
@@ -478,7 +495,8 @@ class Controller:
         # (ta z większym x) w górę = głośniej, w dół = ciszej. Lewa trójka
         # opuszczona = koniec trybu. Pozycje, a nie etykiety MediaPipe,
         # decydują która dłoń jest lewa, więc migotanie etykiet nie przeszkadza.
-        allowed = VOLUME_ENABLED and self.enabled and self.hand_mode == 0
+        allowed = (VOLUME_ENABLED and self.gestures["volume"] and self.enabled
+                   and (self.hand_mode == 0 or not self.gestures["mouse"]))
 
         left_t = None
         right_t = None
@@ -557,7 +575,7 @@ class Controller:
 
             self.right_btn.disarm()
 
-        event = self.left_btn.update(left_values, now)
+        event = self.left_btn.update(left_values, now) if self.gestures["left"] else None
 
         if event == "down":
             self._button_down(now)
@@ -565,7 +583,7 @@ class Controller:
         elif event == "up":
             self.api.left_up()
 
-        if not scroll_active:
+        if not scroll_active and self.gestures["right"]:
             event = self.right_btn.update(right_values, now)
 
             if event == "down":
@@ -685,7 +703,7 @@ class Controller:
         hud = self.hud
 
         # 1) ON/OFF dwiema dłońmi (🤘) - działa niezależnie od ON/OFF i od wyboru ręki
-        rock_n = sum(1 for t in tracks if t.rock_v.active(now))
+        rock_n = sum(1 for t in tracks if t.rock_v.active(now)) if self.gestures["toggle"] else 0
         toggle_active = rock_n >= 2
 
         if self.toggle_hold.update(toggle_active, now):
@@ -693,7 +711,8 @@ class Controller:
 
         # 2) "Słucham" (obie dłonie przy uszach) -> skrót do aplikacji.
         # Działa tylko przy sterowaniu ON.
-        listen_raw, near_ear = self.listen.check(present, now, W, H)
+        listen_raw, near_ear = (self.listen.check(present, now, W, H)
+                                if self.gestures["listen"] else (False, False))
         listen_pose = bool(listen_raw and self.enabled and not toggle_active)
 
         if self.listen_hold.update(listen_pose, now):
@@ -711,7 +730,7 @@ class Controller:
 
         # 4) Play / pauza: 4 palce proste + kciuki schowane, obiema dłońmi.
         # Nie działa, gdy dłonie są przy uszach ani w trybie głośności.
-        four_n = sum(1 for t in present if t.four_v.active(now))
+        four_n = sum(1 for t in present if t.four_v.active(now)) if self.gestures["play"] else 0
         play_pose = bool(
             four_n >= 2
             and (self.enabled or not PLAYPAUSE_ONLY_WHEN_ON)
@@ -729,8 +748,8 @@ class Controller:
 
         # 4b) Następna / poprzednia piosenka: palec wskazujący w bok (dowolna dłoń).
         # Nie działa podczas innych gestów dwiema dłońmi ani w trybie głośności.
-        prev_vote = any(t.point_l_v.active(now) for t in present)
-        next_vote = any(t.point_r_v.active(now) for t in present)
+        prev_vote = self.gestures["previous"] and any(t.point_l_v.active(now) for t in present)
+        next_vote = self.gestures["next"] and any(t.point_r_v.active(now) for t in present)
 
         skip_ok = (
             (self.enabled or not PLAYPAUSE_ONLY_WHEN_ON)
@@ -765,14 +784,15 @@ class Controller:
         )
 
         sel = [t for t in present if want is None or t.label == want]
-        ctl = self.pick_control(sel)
+        mouse_active = self.enabled and self.gestures["mouse"]
+        ctl = self.pick_control(sel) if mouse_active else None
 
         # Scroll (✌): blokada PPM i kursora działa od razu (surowa poza, bez
         # opóźnienia debounce) i trwa chwilę po zakończeniu gestu.
-        if any(t.peace_d.state or t.info["peace"] for t in sel):
+        if mouse_active and self.gestures["scroll"] and any(t.peace_d.state or t.info["peace"] for t in sel):
             self.scroll_hold_until = now + SCROLL_HOLD_SECONDS
 
-        scroll_active = now < self.scroll_hold_until
+        scroll_active = mouse_active and self.gestures["scroll"] and now < self.scroll_hold_until
         rock_pause = ctl is not None and ctl.rock_v.active(now)
         paused = ctl is not None and (ctl.fist_d.state or rock_pause)
 
@@ -780,14 +800,15 @@ class Controller:
         # (bez dłoni też wywołujemy obsługę przycisków - dzięki temu trzymany
         # przycisk nie urywa się przy chwilowym zniknięciu dłoni z kadru)
         clicks_allowed = (
-            self.enabled
+            mouse_active
             and not lock
             and not rock_pause
         )
 
         if clicks_allowed:
             self.handle_buttons(sel, scroll_active, now)
-            self.handle_scroll(sel, now)
+            if self.gestures["scroll"]:
+                self.handle_scroll(sel, now)
         else:
             self.release_buttons()
             self.reset_scroll()
@@ -796,7 +817,7 @@ class Controller:
         if ctl is not None:
             self.lost_since = None
 
-        if (not self.enabled) or lock or scroll_active or paused:
+        if not mouse_active or lock or scroll_active or paused:
             # pięść / scroll / gest / wyłączone = "myszka uniesiona"
             self.invalidate_pointer(now)
 
